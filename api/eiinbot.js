@@ -6,19 +6,25 @@
 
 const MAIN_BOT_TOKEN = "8307228970:AAEmIyuDUcDEej6h17gv19ZeccSbIOkVAnk"; // Main bot token
 const ADMIN_ID = "7915173083"; // Admin Chat ID
-const CHANNEL_USERNAME = "@Xboomber"; // Channel username (@Xboomber)
+const CHANNEL_USERNAME = "@Xboomber"; // Channel username
 
 // ------- Helper: get bot token from URL (?token=...) or fallback main -------
 function getBotTokenFromReq(req) {
+  // Vercel pages API: req.query থাকে
   const q = req.query || {};
   if (q.token && typeof q.token === "string" && q.token.length > 20) {
     return q.token;
   }
 
-  // Extra safety: parse from req.url if needed
+  // যদি উপরে না পায়, তাহলে url পার্স করে দেখবো (safety)
   try {
     if (req.url) {
-      const urlObj = new URL(req.url, "https://example.org");
+      const base =
+        "https://" +
+        (req.headers["x-forwarded-host"] ||
+          req.headers["host"] ||
+          "example.com");
+      const urlObj = new URL(req.url, base);
       const t = urlObj.searchParams.get("token");
       if (t && t.length > 20) return t;
     }
@@ -26,6 +32,7 @@ function getBotTokenFromReq(req) {
     console.error("URL parse error:", e.message);
   }
 
+  // Default: main bot
   return MAIN_BOT_TOKEN;
 }
 
@@ -36,13 +43,19 @@ function getTelegramApi(token) {
 // ------------- Telegram helper functions -------------
 async function callTelegram(token, method, payload) {
   try {
-    await fetch(`${getTelegramApi(token)}/${method}`, {
+    const res = await fetch(`${getTelegramApi(token)}/${method}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
+    const data = await res.json().catch(() => ({}));
+    if (!data.ok) {
+      console.error("Telegram call error:", method, data.description);
+    }
+    return data;
   } catch (e) {
-    console.error("Telegram API error:", e.message);
+    console.error("Telegram API error:", method, e.message);
+    return { ok: false, description: e.message };
   }
 }
 
@@ -117,7 +130,7 @@ function getMainMenuKeyboard() {
 async function notifyAdminNewUser(token, msg) {
   const u = msg.from || {};
   const text =
-    "🆕 *New user started the bot*\n\n" +
+    "🆕 *New user started a bot*\n\n" +
     `🆔 ID: \`${u.id}\`\n` +
     `👤 Name: ${u.first_name || ""} ${u.last_name || ""}\n` +
     `🔗 Username: @${u.username || "N/A"}\n`;
@@ -176,6 +189,8 @@ async function setWebhookForToken(rawToken, req) {
     const webhookUrl =
       `${proto}://${host}/api/bot?token=` + encodeURIComponent(rawToken);
 
+    console.log("Setting webhook for clone token:", rawToken, "URL:", webhookUrl);
+
     const res = await fetch(
       `https://api.telegram.org/bot${rawToken}/setWebhook`,
       {
@@ -189,6 +204,8 @@ async function setWebhookForToken(rawToken, req) {
     );
 
     const data = await res.json();
+    console.log("setWebhook response:", data);
+
     if (!data.ok) {
       return {
         ok: false,
@@ -366,20 +383,42 @@ async function handleCallbackQuery(botToken, update, req) {
           { parse_mode: "Markdown" }
         );
       } else {
+        // auto fail হলে manual setWebhook link পাঠাবো
+        const fallbackUrl =
+          result.webhookUrl ||
+          (function () {
+            const host =
+              req.headers["x-forwarded-host"] ||
+              req.headers["host"] ||
+              "your-vercel-domain.vercel.app";
+            const proto = req.headers["x-forwarded-proto"] || "https";
+            return (
+              `${proto}://${host}/api/bot?token=` +
+              encodeURIComponent(rawToken)
+            );
+          })();
+
+        const manualSetWebhookLink =
+          `https://api.telegram.org/bot${rawToken}/setWebhook?url=` +
+          encodeURIComponent(fallbackUrl);
+
         await sendMessage(
           botToken,
           ADMIN_ID,
-          "⚠️ *Clone Approve এ setWebhook Error এসেছে:*\n\n" +
+          "⚠️ *Clone Approve হয়েছে কিন্তু setWebhook এ Error এসেছে:*\n\n" +
             `Token: \`${rawToken}\`\n` +
-            `Error: ${result.description || "Unknown error"}`,
+            `Error: ${result.description || "Unknown error"}\n\n` +
+            "🔗 Manual setWebhook link:\n" +
+            manualSetWebhookLink,
           { parse_mode: "Markdown" }
         );
 
         await sendMessage(
           botToken,
           targetUserId,
-          "⚠️ *Clone Approve হয়েছে, কিন্তু webhook সেট করতে সমস্যা হয়েছে।*\n\n" +
-            "Admin কে যোগাযোগ করুন অথবা token চেক করুন।",
+          "⚠️ *Clone Approve হয়েছে, কিন্তু Telegram এ webhook সেট করতে সমস্যা হয়েছে।*\n\n" +
+            "👉 নিচের লিংকটা browser এ ওপেন করে একবার manually webhook সেট করে নিন, তারপর আপনার নতুন বট এ `/start` দিন:\n\n" +
+            manualSetWebhookLink,
           { parse_mode: "Markdown" }
         );
       }
@@ -550,7 +589,10 @@ export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(200).send("OK");
 
   const botToken = getBotTokenFromReq(req);
-  const update = req.body;
+  const update = req.body || {};
+
+  // শুধু লগ রাখার জন্য (debug help)
+  console.log("Incoming update for token:", botToken, "type:", Object.keys(update));
 
   if (update.callback_query)
     await handleCallbackQuery(botToken, update, req);
