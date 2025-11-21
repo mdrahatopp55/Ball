@@ -1,27 +1,30 @@
 // api/bot.js
-// ===============================
-// 📱 Telegram Webhook Bot (Vercel) with Clone System (Manual setWebhook link)
-// ===============================
+// ======================================
+// 📱 Telegram Webhook Bot (Vercel)
+// Main + Automatic Clone Webhook System
+// ======================================
 
 const MAIN_BOT_TOKEN = "8307228970:AAEmIyuDUcDEej6h17gv19ZeccSbIOkVAnk"; // Main bot token
 const ADMIN_ID = "7915173083"; // Admin Chat ID
-const CHANNEL_USERNAME = "@Xboomber"; // Channel username
+const CHANNEL_USERNAME = "@Xboomber"; // Channel username (@Xboomber)
 
-// ---- Helper: get bot token from URL (?token=...) or fallback main ----
+// ------- Helper: get bot token from URL (?token=...) or fallback main -------
 function getBotTokenFromReq(req) {
   const q = req.query || {};
-  if (typeof q.token === "string" && q.token.length > 20) {
+  if (q.token && typeof q.token === "string" && q.token.length > 20) {
     return q.token;
   }
 
-  // NEXT/Edge safety: try URL parsing too
+  // Extra safety: parse from req.url if needed
   try {
     if (req.url) {
-      const u = new URL(req.url, `https://${req.headers.host}`);
-      const token = u.searchParams.get("token");
-      if (token && token.length > 20) return token;
+      const urlObj = new URL(req.url, "https://example.org");
+      const t = urlObj.searchParams.get("token");
+      if (t && t.length > 20) return t;
     }
-  } catch (e) {}
+  } catch (e) {
+    console.error("URL parse error:", e.message);
+  }
 
   return MAIN_BOT_TOKEN;
 }
@@ -30,7 +33,7 @@ function getTelegramApi(token) {
   return `https://api.telegram.org/bot${token}`;
 }
 
-// ---- Telegram helper functions ----
+// ------------- Telegram helper functions -------------
 async function callTelegram(token, method, payload) {
   try {
     await fetch(`${getTelegramApi(token)}/${method}`, {
@@ -74,7 +77,7 @@ async function getChatMember(token, chatId, userId) {
   }
 }
 
-// ---- EIIN API helper ----
+// ------------- EIIN API helper -------------
 async function fetchEiinInfo(eiin) {
   const listUrl =
     `http://202.72.235.218:8082/api/v1/institute/list` +
@@ -110,7 +113,7 @@ function getMainMenuKeyboard() {
   };
 }
 
-// ---- Admin notify ----
+// ------------- Admin notify -------------
 async function notifyAdminNewUser(token, msg) {
   const u = msg.from || {};
   const text =
@@ -122,7 +125,7 @@ async function notifyAdminNewUser(token, msg) {
   await sendMessage(token, ADMIN_ID, text, { parse_mode: "Markdown" });
 }
 
-// ---- /start ----
+// ------------- /start handler -------------
 async function handleStart(botToken, message) {
   const chatId = message.chat.id;
 
@@ -159,7 +162,53 @@ async function handleStart(botToken, message) {
   );
 }
 
-// ---- Handle callback ----
+// ======================================
+// 🔁 Clone: Automatic setWebhook for new token
+// ======================================
+async function setWebhookForToken(rawToken, req) {
+  try {
+    const host =
+      req.headers["x-forwarded-host"] ||
+      req.headers["host"] ||
+      "your-vercel-domain.vercel.app";
+    const proto = req.headers["x-forwarded-proto"] || "https";
+
+    const webhookUrl =
+      `${proto}://${host}/api/bot?token=` + encodeURIComponent(rawToken);
+
+    const res = await fetch(
+      `https://api.telegram.org/bot${rawToken}/setWebhook`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          url: webhookUrl,
+          allowed_updates: ["message", "callback_query"],
+        }),
+      }
+    );
+
+    const data = await res.json();
+    if (!data.ok) {
+      return {
+        ok: false,
+        description: data.description || "setWebhook failed",
+        webhookUrl,
+      };
+    }
+
+    return {
+      ok: true,
+      description: data.description || "Webhook was set",
+      webhookUrl,
+    };
+  } catch (e) {
+    console.error("setWebhookForToken error:", e.message);
+    return { ok: false, description: e.message, webhookUrl: null };
+  }
+}
+
+// ------------- Handle callback_query -------------
 async function handleCallbackQuery(botToken, update, req) {
   const query = update.callback_query;
   const data = query.data;
@@ -261,7 +310,7 @@ async function handleCallbackQuery(botToken, update, req) {
 
   // ---- Approve / Cancel Clone ----
   if (data.startsWith("ok|") || data.startsWith("no|")) {
-    // শুধুমাত্র Admin ই এগুলো ব্যবহার করতে পারবে
+    // শুধু Admin ব্যবহার করতে পারবে
     if (String(from.id) !== String(ADMIN_ID)) {
       await answerCallbackQuery(botToken, query.id, {
         text: "❌ অনুমতি নেই (Admin only)",
@@ -273,19 +322,6 @@ async function handleCallbackQuery(botToken, update, req) {
     const [action, userIdStr, encToken] = data.split("|");
     const targetUserId = userIdStr;
     const rawToken = decodeURIComponent(encToken || "");
-
-    // host/proto থেকে webhook URL বানাবো (manual set-এর জন্য)
-    const host =
-      req.headers["x-forwarded-host"] ||
-      req.headers["host"] ||
-      "your-vercel-domain.vercel.app";
-    const proto = req.headers["x-forwarded-proto"] || "https";
-
-    const webhookUrl =
-      `${proto}://${host}/api/bot?token=` + encodeURIComponent(rawToken);
-    const setWebhookUrl =
-      `https://api.telegram.org/bot${rawToken}/setWebhook?url=` +
-      encodeURIComponent(webhookUrl);
 
     if (action === "no") {
       await answerCallbackQuery(botToken, query.id, {
@@ -302,45 +338,63 @@ async function handleCallbackQuery(botToken, update, req) {
 
     if (action === "ok") {
       await answerCallbackQuery(botToken, query.id, {
-        text: "✅ Clone approve হয়েছে (manual webhook)",
+        text: "✅ Approving clone...",
         show_alert: false,
       });
 
-      // Admin-এর জন্য ডিটেইল
-      await sendMessage(
-        botToken,
-        ADMIN_ID,
-        "✅ *Clone Approved*\n\n" +
-          `👤 User: \`${targetUserId}\`\n` +
-          `🔑 Token: \`${rawToken}\`\n\n` +
-          "👇 এই লিংকে ক্লিক করলে ওই Bot এর webhook সেট হবে:\n" +
-          setWebhookUrl,
-        { parse_mode: "Markdown" }
-      );
+      // 🔥 এখানে অটোমেটিক setWebhook করা হচ্ছে
+      const result = await setWebhookForToken(rawToken, req);
 
-      // User-এর জন্য ইনস্ট্রাকশন
-      await sendMessage(
-        botToken,
-        targetUserId,
-        "✅ *আপনার Bot Clone Approved!*\n\n" +
-          "👉 এখন নিচের লিংকে ক্লিক করে আপনার নতুন Bot এ webhook সেট করুন:\n\n" +
-          setWebhookUrl +
-          "\n\nতারপর আপনার নতুন Bot এ গিয়ে `/start` পাঠান এবং বট ব্যবহার শুরু করুন।",
-        { parse_mode: "Markdown" }
-      );
+      if (result.ok) {
+        await sendMessage(
+          botToken,
+          ADMIN_ID,
+          "✅ *Clone Approved & Webhook Set*\n\n" +
+            `👤 User: \`${targetUserId}\`\n` +
+            `🔑 Token: \`${rawToken}\`\n\n` +
+            `🌐 Webhook URL:\n\`${result.webhookUrl}\``,
+          { parse_mode: "Markdown" }
+        );
 
+        await sendMessage(
+          botToken,
+          targetUserId,
+          "✅ *আপনার Bot সফলভাবে Clone করা হয়েছে!*\n\n" +
+            "👉 এখন আপনার নতুন Bot এ গিয়ে `/start` পাঠান এবং বট ব্যবহার শুরু করুন।\n\n" +
+            "আপনার Bot এর webhook সেট হয়েছে নিচের URL এ:\n" +
+            `\`${result.webhookUrl}\``,
+          { parse_mode: "Markdown" }
+        );
+      } else {
+        await sendMessage(
+          botToken,
+          ADMIN_ID,
+          "⚠️ *Clone Approve এ setWebhook Error এসেছে:*\n\n" +
+            `Token: \`${rawToken}\`\n` +
+            `Error: ${result.description || "Unknown error"}`,
+          { parse_mode: "Markdown" }
+        );
+
+        await sendMessage(
+          botToken,
+          targetUserId,
+          "⚠️ *Clone Approve হয়েছে, কিন্তু webhook সেট করতে সমস্যা হয়েছে।*\n\n" +
+            "Admin কে যোগাযোগ করুন অথবা token চেক করুন।",
+          { parse_mode: "Markdown" }
+        );
+      }
       return;
     }
   }
 }
 
-// ---- Message handler ----
+// ------------- Message handler -------------
 async function handleMessage(botToken, update) {
   const msg = update.message;
   const chatId = msg.chat.id;
   const text = (msg.text || "").trim();
 
-  // ---- Commands ----
+  // Commands
   if (text.startsWith("/start")) return handleStart(botToken, msg);
 
   if (text === "/menu") {
@@ -351,7 +405,7 @@ async function handleMessage(botToken, update) {
     return;
   }
 
-  // ---- Reply Keyboard button handling ----
+  // Reply Keyboard buttons
   if (text === "📚 EIIN TO INFO") {
     await sendMessage(
       botToken,
@@ -404,7 +458,7 @@ async function handleMessage(botToken, update) {
     return;
   }
 
-  // ---- Force Reply Handling (EIIN / TOKEN) ----
+  // Force Reply handling (EIIN / TOKEN)
   if (msg.reply_to_message) {
     const parent = msg.reply_to_message.text || "";
 
@@ -479,7 +533,7 @@ async function handleMessage(botToken, update) {
     }
   }
 
-  // Fallback: unknown text
+  // Fallback
   await sendMessage(
     botToken,
     chatId,
@@ -491,7 +545,7 @@ async function handleMessage(botToken, update) {
   );
 }
 
-// ---- Vercel Handler ----
+// ------------- Vercel Handler -------------
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(200).send("OK");
 
