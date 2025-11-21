@@ -1,6 +1,6 @@
 // api/bot.js
 // ===============================
-// 📱 Telegram Webhook Bot (Vercel) with Clone System
+// 📱 Telegram Webhook Bot (Vercel) with Clone System (Manual setWebhook link)
 // ===============================
 
 const MAIN_BOT_TOKEN = "8307228970:AAEmIyuDUcDEej6h17gv19ZeccSbIOkVAnk"; // Main bot token
@@ -13,6 +13,16 @@ function getBotTokenFromReq(req) {
   if (typeof q.token === "string" && q.token.length > 20) {
     return q.token;
   }
+
+  // NEXT/Edge safety: try URL parsing too
+  try {
+    if (req.url) {
+      const u = new URL(req.url, `https://${req.headers.host}`);
+      const token = u.searchParams.get("token");
+      if (token && token.length > 20) return token;
+    }
+  } catch (e) {}
+
   return MAIN_BOT_TOKEN;
 }
 
@@ -149,36 +159,6 @@ async function handleStart(botToken, message) {
   );
 }
 
-// ---- Clone: setWebhook for new token ----
-async function setWebhookForToken(rawToken, req) {
-  try {
-    const host =
-      req.headers["x-forwarded-host"] ||
-      req.headers["host"] ||
-      "your-vercel-domain.vercel.app";
-    const proto = req.headers["x-forwarded-proto"] || "https";
-
-    const url =
-      `${proto}://${host}/api/bot?token=` + encodeURIComponent(rawToken);
-
-    const res = await fetch(
-      `https://api.telegram.org/bot${rawToken}/setWebhook`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url }),
-      }
-    );
-    const data = await res.json();
-    if (!data.ok) throw new Error(data.description || "setWebhook failed");
-
-    return { ok: true, description: data.description || "Webhook set" };
-  } catch (e) {
-    console.error("setWebhookForToken error:", e.message);
-    return { ok: false, description: e.message };
-  }
-}
-
 // ---- Handle callback ----
 async function handleCallbackQuery(botToken, update, req) {
   const query = update.callback_query;
@@ -294,6 +274,19 @@ async function handleCallbackQuery(botToken, update, req) {
     const targetUserId = userIdStr;
     const rawToken = decodeURIComponent(encToken || "");
 
+    // host/proto থেকে webhook URL বানাবো (manual set-এর জন্য)
+    const host =
+      req.headers["x-forwarded-host"] ||
+      req.headers["host"] ||
+      "your-vercel-domain.vercel.app";
+    const proto = req.headers["x-forwarded-proto"] || "https";
+
+    const webhookUrl =
+      `${proto}://${host}/api/bot?token=` + encodeURIComponent(rawToken);
+    const setWebhookUrl =
+      `https://api.telegram.org/bot${rawToken}/setWebhook?url=` +
+      encodeURIComponent(webhookUrl);
+
     if (action === "no") {
       await answerCallbackQuery(botToken, query.id, {
         text: "❌ Clone Request Cancel করা হয়েছে",
@@ -309,41 +302,33 @@ async function handleCallbackQuery(botToken, update, req) {
 
     if (action === "ok") {
       await answerCallbackQuery(botToken, query.id, {
-        text: "✅ Approving clone...",
+        text: "✅ Clone approve হয়েছে (manual webhook)",
         show_alert: false,
       });
 
-      const result = await setWebhookForToken(rawToken, req);
+      // Admin-এর জন্য ডিটেইল
+      await sendMessage(
+        botToken,
+        ADMIN_ID,
+        "✅ *Clone Approved*\n\n" +
+          `👤 User: \`${targetUserId}\`\n` +
+          `🔑 Token: \`${rawToken}\`\n\n` +
+          "👇 এই লিংকে ক্লিক করলে ওই Bot এর webhook সেট হবে:\n" +
+          setWebhookUrl,
+        { parse_mode: "Markdown" }
+      );
 
-      if (result.ok) {
-        await sendMessage(
-          botToken,
-          ADMIN_ID,
-          "✅ *Clone Approved*\n\n" +
-            `👤 User: \`${targetUserId}\`\n` +
-            `🔑 Token: \`${rawToken}\`\n\n` +
-            "Webhook সফলভাবে সেট হয়েছে।",
-          { parse_mode: "Markdown" }
-        );
+      // User-এর জন্য ইনস্ট্রাকশন
+      await sendMessage(
+        botToken,
+        targetUserId,
+        "✅ *আপনার Bot Clone Approved!*\n\n" +
+          "👉 এখন নিচের লিংকে ক্লিক করে আপনার নতুন Bot এ webhook সেট করুন:\n\n" +
+          setWebhookUrl +
+          "\n\nতারপর আপনার নতুন Bot এ গিয়ে `/start` পাঠান এবং বট ব্যবহার শুরু করুন।",
+        { parse_mode: "Markdown" }
+      );
 
-        await sendMessage(
-          botToken,
-          targetUserId,
-          "✅ *আপনার Bot সফলভাবে Clone করা হয়েছে!*\n\n" +
-            "👉 এখন নিজ Bot এ গিয়ে `/start` পাঠান এবং ব্যবহার শুরু করুন।\n" +
-            "যে URL দিয়ে webhook সেট হয়েছে:\n" +
-            "`/api/bot?token=YOUR_BOT_TOKEN`",
-          { parse_mode: "Markdown" }
-        );
-      } else {
-        await sendMessage(
-          botToken,
-          ADMIN_ID,
-          "⚠️ *Clone Approve এ সমস্যা হয়েছে:*\n\n" +
-            result.description,
-          { parse_mode: "Markdown" }
-        );
-      }
       return;
     }
   }
