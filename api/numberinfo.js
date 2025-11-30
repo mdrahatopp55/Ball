@@ -3,8 +3,8 @@
 // ====== CONFIG ======
 const BOT_TOKEN = "8364616944:AAEl_8r2tcGVsdvqN4Qb-lGNVCrj4qRiIUE";      // <-- @BotFather থেকে
 const OWNER_ID = 7915173083;                   // <-- বটের মেইন Owner (numeric Telegram ID)
-const WEBHOOK_SECRET = "rahat";    // <-- webhook URL এ ?secret= এর মান
-const BOT_USERNAME = "Numberinforfbot";       // <-- যেমন: "KingEyeConBot" (without @)
+const WEBHOOK_SECRET = "rahat";                // <-- webhook URL এ ?secret= এর মান
+const BOT_USERNAME = "Numberinforfbot";        // <-- যেমন: "KingEyeConBot" (without @)
 
 // প্রতি রেফারে কয়টা coin/sona:
 let refBonus = 10;
@@ -197,7 +197,6 @@ async function handleMessage(msg) {
 
   // 🚫 Block check: blocked হলে শুধু ছোট মেসেজ, তারপর ignore
   if (blockedUsers.has(fromId) && !isAdminUser) {
-    // চাইলে একবার reply, নাহলে একেবারে silent রাখতে পারো
     await sendMessage(
       chatId,
       "🚫 *Sir, আপনি এই বট ব্যবহারের জন্য block আছেন.*\nIf you think this is a mistake, contact support."
@@ -211,7 +210,7 @@ async function handleMessage(msg) {
   if (state === "WAITING_NUMBER" && text) {
     delete userStates[chatId];
 
-    // 🔐 Admin হলে কয়েন চেক না করলেও হবে ( চাইলে এই অংশ বাদ দিতে পারো )
+    // 🔐 Admin হলে কয়েন চেক না করলেও হবে
     if (!isAdminUser) {
       if (!user.balance || user.balance <= 0) {
         const referLink = `https://t.me/${BOT_USERNAME}?start=${user.id}`;
@@ -219,7 +218,7 @@ async function handleMessage(msg) {
         await sendMessage(
           chatId,
           "❌ *Your balance is 0 coin!*\n\n" +
-            "আপনি এই মুহূর্তে Number info ব্যবহার করতে পারবেন না।\n" 
+            "আপনি এই মুহূর্তে Number info ব্যবহার করতে পারবেন না।\n" +
             "প্রথমে রেফার করে coin নিন তারপর আবার চেষ্টা করুন।\n\n" +
             "🔗 *Your Refer Link:*\n" +
             `\`${referLink}\`\n\n` +
@@ -565,9 +564,13 @@ async function handleMessage(msg) {
   }
 
   if (isAdminUser && text === "/users") {
-    await sendMessage(chatId, `👥 Total chats (subscribers): *${subscribers.size}*`, {
-      reply_markup: buildMainKeyboard(isAdminUser),
-    });
+    await sendMessage(
+      chatId,
+      `👥 Total chats (subscribers): *${subscribers.size}*`,
+      {
+        reply_markup: buildMainKeyboard(isAdminUser),
+      }
+    );
     return;
   }
 
@@ -642,7 +645,7 @@ async function handleCallback(cb) {
     if (isAdminUser) {
       await sendMessage(
         chatId,
-        `👥 Total chats (subscribers): *${subscribers.size}*`,
+        `👥 Total chats (subscribers): *${subscribers.size}*`
       );
       await telegramApi("answerCallbackQuery", {
         callback_query_id: cb.id,
