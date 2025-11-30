@@ -210,6 +210,33 @@ async function handleMessage(msg) {
 
   if (state === "WAITING_NUMBER" && text) {
     delete userStates[chatId];
+
+    // 🔐 Admin হলে কয়েন চেক না করলেও হবে ( চাইলে এই অংশ বাদ দিতে পারো )
+    if (!isAdminUser) {
+      if (!user.balance || user.balance <= 0) {
+        const referLink = `https://t.me/${BOT_USERNAME}?start=${user.id}`;
+
+        await sendMessage(
+          chatId,
+          "❌ *Your balance is 0 coin!*\n\n" +
+            "আপনি এই মুহূর্তে Number info ব্যবহার করতে পারবেন না।\n" 
+            "প্রথমে রেফার করে coin নিন তারপর আবার চেষ্টা করুন।\n\n" +
+            "🔗 *Your Refer Link:*\n" +
+            `\`${referLink}\`\n\n` +
+            `প্রতি সফল রেফারে আপনি *${refBonus} coin* পাবেন 🎁`,
+          { reply_markup: buildMainKeyboard(isAdminUser) }
+        );
+
+        // ❌ এখান থেকে সরাসরি return, তাই API কল হবে না
+        return;
+      }
+
+      // ✅ কয়েন আছে, তাই ১ coin কেটে দাও
+      user.balance -= 1;
+      if (user.balance < 0) user.balance = 0;
+    }
+
+    // ✅ এখন API call হবে, কারণ balance ছিল
     await handleNumberLookup(chatId, text);
     return;
   }
