@@ -8,6 +8,13 @@ const BOT_USERNAME = "Numberinforfbot";        // <-- যেমন: "KingEyeConB
 
 // প্রতি রেফারে কয়টা coin/sona:
 let refBonus = 10;
+// Fast join bonus
+const joinBonus = 2;
+
+// Bot mode: FREE / PAID
+// FREE  => সব user coin ছাড়া use করতে পারবে
+// PAID  => normal user coin দেবে, admin coin free
+let isFreeMode = false;
 
 // Admin তালিকা (Owner + অন্যরা)
 const ADMIN_IDS = new Set([OWNER_ID]);
@@ -26,7 +33,7 @@ const userStates = {};         // { chatId: "WAITING_NUMBER" | "BROADCAST_WAITIN
 const subscribers = new Set(); // chat IDs for broadcast
 
 // User data: referral + balance
-// users[userId] = { id, name, username, balance, referrals: [userIds], referredBy, joinedOnce }
+// users[userId] = { id, name, username, balance, referrals: [userIds], referredBy, joinedOnce, joinBonusClaimed }
 const users = {};
 
 // Blocked users (only admin can block/unblock)
@@ -49,6 +56,7 @@ function getOrCreateUser(fromOrId) {
       referrals: [],
       referredBy: null,
       joinedOnce: false,
+      joinBonusClaimed: false, // fast join bonus একবারই দেবে
     };
   } else if (typeof fromOrId === "object") {
     // update name / username if changed
@@ -210,8 +218,9 @@ async function handleMessage(msg) {
   if (state === "WAITING_NUMBER" && text) {
     delete userStates[chatId];
 
-    // 🔐 Admin হলে কয়েন চেক না করলেও হবে
-    if (!isAdminUser) {
+    // ⚙️ Coin logic: FREE mode হলে কারও coin কাটবে না
+    // PAID mode হলে শুধুই normal user-দের থেকে coin কাটবে (admin free)
+    if (!isFreeMode && !isAdminUser) {
       if (!user.balance || user.balance <= 0) {
         const referLink = `https://t.me/${BOT_USERNAME}?start=${user.id}`;
 
@@ -235,7 +244,7 @@ async function handleMessage(msg) {
       if (user.balance < 0) user.balance = 0;
     }
 
-    // ✅ এখন API call হবে, কারণ balance ছিল
+    // ✅ এখন API call হবে
     await handleNumberLookup(chatId, text);
     return;
   }
@@ -300,17 +309,43 @@ async function handleMessage(msg) {
     return;
   }
 
+  // Bot mode command: /mode free | /mode paid
+  if (isAdminUser && text.startsWith("/mode")) {
+    const parts = text.split(" ");
+    const sub = (parts[1] || "").toLowerCase();
+    if (sub === "free") {
+      isFreeMode = true;
+      await sendMessage(
+        chatId,
+        "🆓 *Bot mode set to FREE*\n\nসব user এখন coin ছাড়া bot use করতে পারবে.",
+        { reply_markup: buildMainKeyboard(isAdminUser) }
+      );
+    } else if (sub === "paid") {
+      isFreeMode = false;
+      await sendMessage(
+        chatId,
+        "💰 *Bot mode set to PAID*\n\nNormal user-দের থেকে coin কাটবে, admin free থাকবে.",
+        { reply_markup: buildMainKeyboard(isAdminUser) }
+      );
+    } else {
+      await sendMessage(
+        chatId,
+        "⚠️ Usage: `/mode free` অথবা `/mode paid`",
+        { reply_markup: buildMainKeyboard(isAdminUser) }
+      );
+    }
+    return;
+  }
+
   if (isAdminUser && text.startsWith("/addcoin")) {
     // /addcoin userId amount
     const parts = text.split(" ");
     const userId = parseInt(parts[1], 10);
     const amount = parseInt(parts[2], 10);
     if (!userId || isNaN(amount)) {
-      await sendMessage(
-        chatId,
-        "⚠️ Usage: `/addcoin 123456789 50`",
-        { reply_markup: buildMainKeyboard(isAdminUser) }
-      );
+      await sendMessage(chatId, "⚠️ Usage: `/addcoin 123456789 50`", {
+        reply_markup: buildMainKeyboard(isAdminUser),
+      });
       return;
     }
     const u = getOrCreateUser(userId);
@@ -329,11 +364,9 @@ async function handleMessage(msg) {
     const userId = parseInt(parts[1], 10);
     const amount = parseInt(parts[2], 10);
     if (!userId || isNaN(amount)) {
-      await sendMessage(
-        chatId,
-        "⚠️ Usage: `/removecoin 123456789 10`",
-        { reply_markup: buildMainKeyboard(isAdminUser) }
-      );
+      await sendMessage(chatId, "⚠️ Usage: `/removecoin 123456789 10`", {
+        reply_markup: buildMainKeyboard(isAdminUser),
+      });
       return;
     }
     const u = getOrCreateUser(userId);
@@ -353,11 +386,9 @@ async function handleMessage(msg) {
     const userId = parseInt(parts[1], 10);
     const amount = parseInt(parts[2], 10);
     if (!userId || isNaN(amount)) {
-      await sendMessage(
-        chatId,
-        "⚠️ Usage: `/setcoin 123456789 100`",
-        { reply_markup: buildMainKeyboard(isAdminUser) }
-      );
+      await sendMessage(chatId, "⚠️ Usage: `/setcoin 123456789 100`", {
+        reply_markup: buildMainKeyboard(isAdminUser),
+      });
       return;
     }
     const u = getOrCreateUser(userId);
@@ -375,19 +406,18 @@ async function handleMessage(msg) {
     const parts = text.split(" ");
     const userId = parseInt(parts[1], 10);
     if (!userId) {
-      await sendMessage(
-        chatId,
-        "⚠️ Usage: `/uinfo 123456789`",
-        { reply_markup: buildMainKeyboard(isAdminUser) }
-      );
+      await sendMessage(chatId, "⚠️ Usage: `/uinfo 123456789`", {
+        reply_markup: buildMainKeyboard(isAdminUser),
+      });
       return;
     }
     const u = getOrCreateUser(userId);
     const refCount = u.referrals.length;
-    const listPreview = u.referrals
-      .slice(0, 5)
-      .map((id, i) => `${i + 1}. \`${id}\``)
-      .join("\n") || "None";
+    const listPreview =
+      u.referrals
+        .slice(0, 5)
+        .map((id, i) => `${i + 1}. \`${id}\``)
+        .join("\n") || "None";
 
     const txt =
       "👁‍🗨 *User Info*\n\n" +
@@ -411,27 +441,21 @@ async function handleMessage(msg) {
     const parts = text.split(" ");
     const userId = parseInt(parts[1], 10);
     if (!userId) {
-      await sendMessage(
-        chatId,
-        "⚠️ Usage: `/block 123456789`",
-        { reply_markup: buildMainKeyboard(isAdminUser) }
-      );
+      await sendMessage(chatId, "⚠️ Usage: `/block 123456789`", {
+        reply_markup: buildMainKeyboard(isAdminUser),
+      });
       return;
     }
     if (userId === OWNER_ID || ADMIN_IDS.has(userId)) {
-      await sendMessage(
-        chatId,
-        "⚠️ Sir, admin/owner কে block করা যাবে না!",
-        { reply_markup: buildMainKeyboard(isAdminUser) }
-      );
+      await sendMessage(chatId, "⚠️ Sir, admin/owner কে block করা যাবে না!", {
+        reply_markup: buildMainKeyboard(isAdminUser),
+      });
       return;
     }
     blockedUsers.add(userId);
-    await sendMessage(
-      chatId,
-      `🚫 Sir, user \`${userId}\` এখন থেকে *BLOCKED*`,
-      { reply_markup: buildMainKeyboard(isAdminUser) }
-    );
+    await sendMessage(chatId, `🚫 Sir, user \`${userId}\` এখন থেকে *BLOCKED*`, {
+      reply_markup: buildMainKeyboard(isAdminUser),
+    });
     return;
   }
 
@@ -440,39 +464,31 @@ async function handleMessage(msg) {
     const parts = text.split(" ");
     const userId = parseInt(parts[1], 10);
     if (!userId) {
-      await sendMessage(
-        chatId,
-        "⚠️ Usage: `/unblock 123456789`",
-        { reply_markup: buildMainKeyboard(isAdminUser) }
-      );
+      await sendMessage(chatId, "⚠️ Usage: `/unblock 123456789`", {
+        reply_markup: buildMainKeyboard(isAdminUser),
+      });
       return;
     }
     blockedUsers.delete(userId);
-    await sendMessage(
-      chatId,
-      `✅ Sir, user \`${userId}\` এখন *UNBLOCKED*`,
-      { reply_markup: buildMainKeyboard(isAdminUser) }
-    );
+    await sendMessage(chatId, `✅ Sir, user \`${userId}\` এখন *UNBLOCKED*`, {
+      reply_markup: buildMainKeyboard(isAdminUser),
+    });
     return;
   }
 
   if (isAdminUser && text === "/blocked") {
     if (!blockedUsers.size) {
-      await sendMessage(
-        chatId,
-        "✅ Sir, বর্তমানে *কেউই blocked না*.",
-        { reply_markup: buildMainKeyboard(isAdminUser) }
-      );
+      await sendMessage(chatId, "✅ Sir, বর্তমানে *কেউই blocked না*.", {
+        reply_markup: buildMainKeyboard(isAdminUser),
+      });
       return;
     }
     const list = Array.from(blockedUsers)
       .map((id) => `• \`${id}\``)
       .join("\n");
-    await sendMessage(
-      chatId,
-      "🚫 *Blocked Users (ID)*:\n\n" + list,
-      { reply_markup: buildMainKeyboard(isAdminUser) }
-    );
+    await sendMessage(chatId, "🚫 *Blocked Users (ID)*:\n\n" + list, {
+      reply_markup: buildMainKeyboard(isAdminUser),
+    });
     return;
   }
 
@@ -480,11 +496,9 @@ async function handleMessage(msg) {
   if (isAdminUser && text === "/allusers") {
     const ids = Object.keys(users);
     if (!ids.length) {
-      await sendMessage(
-        chatId,
-        "📂 Sir, এখনো কোনো user data নেই.",
-        { reply_markup: buildMainKeyboard(isAdminUser) }
-      );
+      await sendMessage(chatId, "📂 Sir, এখনো কোনো user data নেই.", {
+        reply_markup: buildMainKeyboard(isAdminUser),
+      });
       return;
     }
     const preview = ids.slice(0, 50).map((id, i) => {
@@ -509,19 +523,15 @@ async function handleMessage(msg) {
     const parts = text.split(" ");
     const userId = parseInt(parts[1], 10);
     if (!userId) {
-      await sendMessage(
-        chatId,
-        "⚠️ Usage: `/addadmin 123456789`",
-        { reply_markup: buildMainKeyboard(isAdminUser) }
-      );
+      await sendMessage(chatId, "⚠️ Usage: `/addadmin 123456789`", {
+        reply_markup: buildMainKeyboard(isAdminUser),
+      });
       return;
     }
     ADMIN_IDS.add(userId);
-    await sendMessage(
-      chatId,
-      `✅ Sir, added admin: \`${userId}\``,
-      { reply_markup: buildMainKeyboard(isAdminUser) }
-    );
+    await sendMessage(chatId, `✅ Sir, added admin: \`${userId}\``, {
+      reply_markup: buildMainKeyboard(isAdminUser),
+    });
     return;
   }
 
@@ -529,11 +539,9 @@ async function handleMessage(msg) {
     const parts = text.split(" ");
     const userId = parseInt(parts[1], 10);
     if (!userId) {
-      await sendMessage(
-        chatId,
-        "⚠️ Usage: `/removeadmin 123456789`",
-        { reply_markup: buildMainKeyboard(isAdminUser) }
-      );
+      await sendMessage(chatId, "⚠️ Usage: `/removeadmin 123456789`", {
+        reply_markup: buildMainKeyboard(isAdminUser),
+      });
       return;
     }
     if (userId === OWNER_ID) {
@@ -543,11 +551,9 @@ async function handleMessage(msg) {
       return;
     }
     ADMIN_IDS.delete(userId);
-    await sendMessage(
-      chatId,
-      `✅ Sir, removed admin: \`${userId}\``,
-      { reply_markup: buildMainKeyboard(isAdminUser) }
-    );
+    await sendMessage(chatId, `✅ Sir, removed admin: \`${userId}\``, {
+      reply_markup: buildMainKeyboard(isAdminUser),
+    });
     return;
   }
 
@@ -555,11 +561,9 @@ async function handleMessage(msg) {
     const list = Array.from(ADMIN_IDS)
       .map((id) => `• \`${id}\``)
       .join("\n");
-    await sendMessage(
-      chatId,
-      "👮‍♂️ *Admin List:*\n\n" + list,
-      { reply_markup: buildMainKeyboard(isAdminUser) }
-    );
+    await sendMessage(chatId, "👮‍♂️ *Admin List:*\n\n" + list, {
+      reply_markup: buildMainKeyboard(isAdminUser),
+    });
     return;
   }
 
@@ -611,13 +615,28 @@ async function handleCallback(cb) {
   if (data === "VERIFY_JOIN") {
     const ok = await isUserJoinedAllChannels(userId);
     if (ok) {
+      const user = getOrCreateUser(cb.from);
+
+      // 🎁 Fast join bonus (একবারই)
+      if (!user.joinBonusClaimed) {
+        user.joinBonusClaimed = true;
+        user.balance += joinBonus;
+        try {
+          await sendMessage(
+            chatId,
+            `🎁 *Fast Join Bonus!*\n\nYou received *${joinBonus} coin* for joining all channels.\nCurrent balance: *${user.balance} coin*`
+          );
+        } catch (e) {
+          console.error("Failed to send join bonus:", e);
+        }
+      }
+
       await telegramApi("answerCallbackQuery", {
         callback_query_id: cb.id,
         text: "✅ All channels joined! Welcome.",
         show_alert: false,
       });
 
-      const user = getOrCreateUser(cb.from);
       await sendMessage(
         chatId,
         `🎉 *Welcome, ${user.name || "User"}!*\n\nYou have joined all required channels.\nNow you can use the menu below 👇`,
@@ -652,6 +671,18 @@ async function handleCallback(cb) {
         text: "📊 User count updated.",
         show_alert: false,
       });
+    }
+  } else if (data === "PANEL_TOGGLE_MODE") {
+    if (isAdminUser) {
+      isFreeMode = !isFreeMode;
+      await telegramApi("answerCallbackQuery", {
+        callback_query_id: cb.id,
+        text: isFreeMode
+          ? "🆓 Bot is now in FREE mode."
+          : "💰 Bot is now in PAID mode.",
+        show_alert: false,
+      });
+      await showAdminPanel(chatId);
     }
   }
 }
@@ -799,7 +830,8 @@ async function showBalance(chatId, user, isAdminUser) {
     "🔗 *Your Refer Link:*\n" +
     `\`${referLink}\`\n\n` +
     "📌 Share this link with friends.\n" +
-    `Every successful join = *${refBonus} coin* 🎁`;
+    `Every successful join = *${refBonus} coin* 🎁\n\n` +
+    `⚙️ *Bot Mode:* ${isFreeMode ? "🆓 FREE" : "💰 PAID"}`;
 
   await sendMessage(chatId, text, {
     reply_markup: buildMainKeyboard(isAdminUser),
@@ -841,8 +873,14 @@ async function showReferHistory(chatId, user, isAdminUser) {
 }
 
 async function showAdminPanel(chatId) {
+  const modeText = isFreeMode
+    ? "🆓 *FREE Mode*\nসব user coin ছাড়া use করতে পারবে."
+    : "💰 *PAID Mode*\nNormal user coin দিয়ে use করবে, admin free থাকবে.";
+
   const text =
     "🛠 *Admin Panel (Sir)*\n\n" +
+    modeText +
+    "\n\n" +
     "📊 *Full Control Commands:*\n\n" +
     "• `/users` — total chats\n" +
     "• `/allusers` — show all users list\n" +
@@ -855,16 +893,24 @@ async function showAdminPanel(chatId) {
     "• `/setcoin 123456789 100` — set exact balance\n" +
     "• `/block 123456789` — block user\n" +
     "• `/unblock 123456789` — unblock user\n" +
-    "• `/broadcast` — start broadcast mode\n\n" +
+    "• `/broadcast` — start broadcast mode\n" +
+    "• `/mode free` — set FREE mode\n" +
+    "• `/mode paid` — set PAID mode\n\n" +
     "👑 *Owner only:*\n" +
     "• `/addadmin 123456789`\n" +
     "• `/removeadmin 123456789`\n\n" +
-    "Use the inline buttons for quick stats 👇";
+    "Use the inline buttons for quick stats & mode 👇";
 
   const keyboard = {
     inline_keyboard: [
       [{ text: "👥 Total Users", callback_data: "PANEL_USERS" }],
       [{ text: "📢 Broadcast", callback_data: "PANEL_BROADCAST" }],
+      [
+        {
+          text: isFreeMode ? "💰 Switch to PAID Mode" : "🆓 Switch to FREE Mode",
+          callback_data: "PANEL_TOGGLE_MODE",
+        },
+      ],
     ],
   };
 
