@@ -1,57 +1,168 @@
-import { ApifyClient } from "apify-client";
+export const config = {
+  runtime: "nodejs"
+};
 
 export default async function handler(req, res) {
-    res.setHeader("Content-Type", "application/json; charset=utf-8");
+  res.setHeader("Content-Type", "application/json; charset=UTF-8");
+  res.setHeader("Access-Control-Allow-Origin", "*");
 
-    // Allow only GET
-    if (req.method !== "GET") {
-        return res.status(405).json({
-            success: false,
-            message: "Only GET method allowed",
-        });
-    } // <-- FIXED missing bracket
+  // ----------------------------
+  // Helper functions
+  // ----------------------------
+  const jsonResponse = (data, code = 200) => {
+    res.status(code).json(data);
+  };
 
-    const pageUrl = req.query.url;
+  const randomIP = () =>
+    `${rand(1, 255)}.${rand(0, 255)}.${rand(0, 255)}.${rand(1, 254)}`;
 
-    if (!pageUrl) {
-        return res.status(400).json({
-            success: false,
-            message: "Please provide URL. Example: /api/run?url=https://facebook.com/page",
-        });
-    }
+  function rand(min, max) {
+    return Math.floor(Math.random() * (max - min + 1)) + min;
+  }
 
+  const randomUserAgent = () => {
+    const uas = [
+      "Mozilla/5.0 (Linux; Android 10; SM-A107F) AppleWebKit/537.36 Chrome/124 Mobile Safari/537.36",
+      "Mozilla/5.0 (Windows NT 10.0) AppleWebKit/537.36 Chrome/121 Safari/537.36",
+      "Mozilla/5.0 (iPhone; CPU iPhone OS 16_2) AppleWebKit/605.1.15 Mobile/15E148",
+      "Mozilla/5.0 (Linux; Android 12; Redmi Note 9) AppleWebKit/537.36 Chrome/132 Mobile Safari/537.36",
+      "Mozilla/5.0 (Macintosh; Intel Mac OS X 13_4) AppleWebKit/605.1.15 Version/16.4 Safari/605.1.15"
+    ];
+    return uas[Math.floor(Math.random() * uas.length)];
+  };
+
+  const randomReferer = () => {
+    const refs = [
+      "https://www.google.com/",
+      "https://m.facebook.com/",
+      "https://www.youtube.com/",
+      "https://www.bing.com/",
+      "https://www.instagram.com/"
+    ];
+    return refs[Math.floor(Math.random() * refs.length)];
+  };
+
+  // ----------------------------
+  // Input
+  // ----------------------------
+  let username = (req.query.username || "").trim();
+
+  if (!username) {
+    return jsonResponse({
+      status: false,
+      code: 400,
+      message: "Parameter 'username' is required!",
+      credit: {
+        made_by: ["@bdkingboss", "@topnormalperson"],
+        channel: "https://t.me/Rfcyberteam"
+      }
+    }, 400);
+  }
+
+  if (/^\d+$/.test(username)) {
+    username = `https://www.facebook.com/profile.php?id=${username}`;
+  }
+
+  // ----------------------------
+  // Build request
+  // ----------------------------
+  const apiUrl =
+    "https://www.fbprofileviewer.com/api/profile?username=" +
+    encodeURIComponent(username);
+
+  const ip = randomIP();
+  const ua = randomUserAgent();
+  const ref = randomReferer();
+
+  try {
+    const response = await fetch(apiUrl, {
+      method: "GET",
+      headers: {
+        "User-Agent": ua,
+        "X-Forwarded-For": ip,
+        "Client-IP": ip,
+        "Referer": ref,
+        "Accept": "application/json",
+        "Accept-Language": "en-US,en;q=0.9"
+      }
+    });
+
+    const text = await response.text();
+
+    let data;
     try {
-        const client = new ApifyClient({
-            token: "apify_api_lXQd5BhJyPBel2TLkPkfj2vCXgAgk13tfVt9", // Token Added ✔
-        });
-
-        const input = {
-            startUrls: [{ url: pageUrl }],
-        };
-
-        // Run the actor
-        const run = await client.actor("4Hv5RhChiaDk6iwad").call(input);
-
-        // Fetch results
-        const { items } = await client
-            .dataset(run.defaultDatasetId)
-            .listItems();
-
-        // Response OK
-        return res.status(200).json({
-            success: true,
-            input_url: pageUrl,
-            items_count: items.length,
-            data: items,
-        });
-
-    } catch (err) {
-        console.error("Apify error:", err);
-
-        return res.status(500).json({
-            success: false,
-            message: "Something went wrong while running Apify actor",
-            error: err.message,
-        });
+      data = JSON.parse(text);
+    } catch {
+      return jsonResponse({
+        status: true,
+        requested_username: username,
+        random_ip: ip,
+        random_user_agent: ua,
+        random_referer: ref,
+        raw_response: text,
+        credit: {
+          made_by: ["@bdkingboss", "@topnormalperson"],
+          channel: "https://t.me/Rfcyberteam"
+        }
+      });
     }
+
+    // ----------------------------
+    // Handle rate limit
+    // ----------------------------
+    if (data?.success === false && data?.error) {
+      if (/too many requests/i.test(data.error)) {
+        return jsonResponse({
+          status: false,
+          code: 429,
+          message: data.error,
+          retry_after: data.retryAfter || "unknown",
+          patreon_link: data.patreonLink || null,
+          requested_username: username,
+          credit: {
+            made_by: ["@bdkingboss", "@topnormalperson"],
+            channel: "https://t.me/Rfcyberteam"
+          }
+        }, 429);
+      }
+
+      return jsonResponse({
+        status: false,
+        code: 502,
+        message: data.error,
+        requested_username: username,
+        credit: {
+          made_by: ["@bdkingboss", "@topnormalperson"],
+          channel: "https://t.me/Rfcyberteam"
+        }
+      }, 502);
+    }
+
+    // ----------------------------
+    // Success
+    // ----------------------------
+    return jsonResponse({
+      status: true,
+      requested_username: username,
+      random_ip: ip,
+      random_user_agent: ua,
+      random_referer: ref,
+      data,
+      credit: {
+        made_by: ["@bdkingboss", "@topnormalperson"],
+        channel: "https://t.me/Rfcyberteam"
+      }
+    });
+
+  } catch (err) {
+    return jsonResponse({
+      status: false,
+      code: 500,
+      message: err.message,
+      credit: {
+        made_by: ["@bdkingboss", "@topnormalperson"],
+        channel: "https://t.me/Rfcyberteam"
+      }
+    }, 500);
+  }
 }
