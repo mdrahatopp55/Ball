@@ -7,7 +7,7 @@ export default async function handler(req, res) {
     return res.status(200).send("OK");
   }
 
-  const BOT_TOKEN = "8224663500:AAEzEG81VlkX3YGdMof2507JG8wymOS3-38";
+  const BOT_TOKEN = "8224663500:AAESgArrjCUQSR59orT4RFDoEyCepoyoGSU";
 
   // 🔁 UPDATED APIs
   const API_FB = "https://ball-livid.vercel.app/api/fbd?id=";
