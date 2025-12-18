@@ -791,7 +791,7 @@ async function handleNumberLookup(chatId, text) {
   await sendChatAction(chatId, "typing");
 
   try {
-    const apiUrl = `https://rfcyberteam.online/king/eyecon.php?number=${raw}`;
+    const apiUrl = `https://ball-livid.vercel.app/api/eyacon?number=${raw}`;
     const res = await fetch(apiUrl);
     const json = await res.json();
 
