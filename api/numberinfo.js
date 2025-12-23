@@ -1,8 +1,8 @@
-// ===============================
-// 🤖 KING EYECON TELEGRAM BOT
-// ===============================
+// ======================================
+// 🤖 KING EYECON – FULL TELEGRAM BOT
+// ======================================
 
-// ====== CONFIG (ALL SET) ======
+// ===== CONFIG =====
 const BOT_TOKEN = "8364616944:AAEl_8r2tcGVsdvqN4Qb-lGNVCrj4qRiIUE";
 const OWNER_ID = 7915173083;
 const BOT_USERNAME = "Numberinforfbot";
@@ -10,6 +10,7 @@ const WEBHOOK_SECRET = "rahat";
 
 const TELEGRAM_API = `https://api.telegram.org/bot${BOT_TOKEN}`;
 
+// ===== CHANNEL FORCE JOIN =====
 const REQUIRED_CHANNELS = [
   { username: "Rfcyberteam", url: "https://t.me/Rfcyberteam" },
   { username: "Hacker99top", url: "https://t.me/Hacker99top" },
@@ -17,37 +18,17 @@ const REQUIRED_CHANNELS = [
   { username: "Xboomber", url: "https://t.me/Xboomber" },
 ];
 
-// ===== SETTINGS =====
+// ===== SYSTEM SETTINGS =====
 let refBonus = 10;
-const joinBonus = 2;
 let isFreeMode = false;
 
-// ===== STORAGE (IN-MEMORY) =====
+// ===== MEMORY STORAGE =====
 const users = {};
-const userStates = {};
-const subscribers = new Set();
-const blockedUsers = new Set();
-const ADMIN_IDS = new Set([OWNER_ID]);
+const states = {};
+const admins = new Set([OWNER_ID]);
+const blocked = new Set();
 
-// ===== UTILS =====
-const isAdmin = (id) => ADMIN_IDS.has(id);
-
-function getOrCreateUser(from) {
-  if (!users[from.id]) {
-    users[from.id] = {
-      id: from.id,
-      name: from.first_name || "",
-      username: from.username || "",
-      balance: 0,
-      referrals: [],
-      referredBy: null,
-      joinedOnce: false,
-      joinBonusClaimed: false,
-    };
-  }
-  return users[from.id];
-}
-
+// ===== TELEGRAM HELPERS =====
 async function tg(method, data) {
   const r = await fetch(`${TELEGRAM_API}/${method}`, {
     method: "POST",
@@ -65,8 +46,25 @@ const send = (chat_id, text, extra = {}) =>
     ...extra,
   });
 
+const isAdmin = (id) => admins.has(id);
+
+// ===== USER =====
+function getUser(from) {
+  if (!users[from.id]) {
+    users[from.id] = {
+      id: from.id,
+      name: from.first_name || "",
+      username: from.username || "",
+      balance: 0,
+      referrals: [],
+      joined: false,
+    };
+  }
+  return users[from.id];
+}
+
 // ===== KEYBOARDS =====
-const mainKeyboard = (admin) => ({
+const mainKB = (admin) => ({
   keyboard: [
     [{ text: "📱 Number info CHECK" }],
     [{ text: "💰 My Balance" }, { text: "📜 My Refer History" }],
@@ -76,27 +74,25 @@ const mainKeyboard = (admin) => ({
   resize_keyboard: true,
 });
 
-const joinKeyboard = {
+const joinKB = {
   inline_keyboard: [
     ...REQUIRED_CHANNELS.map((c) => [
       { text: `📢 @${c.username}`, url: c.url },
     ]),
-    [{ text: "✅ I have joined all", callback_data: "VERIFY_JOIN" }],
+    [{ text: "✅ I have joined all", callback_data: "JOIN_OK" }],
   ],
 };
 
 // ===== FORMAT API RESULT =====
-function formatNumberInfo(api) {
-  if (!api || api.success !== true) {
-    return "❌ *No data found or API error.*";
-  }
+function formatResult(j) {
+  if (!j || j.success !== true) return "❌ *No data found.*";
 
-  const item = api.data?.[0] || {};
+  const d = j.data?.[0] || {};
   return (
     "🔍 *Number Info Result*\n\n" +
-    `📞 *Number:* \`${api.phone_number}\`\n` +
-    `👤 *Name:* ${item.name || "Unknown"}\n` +
-    `🏷 *Type:* ${item.type || "N/A"}\n\n` +
+    `📞 *Number:* \`${j.phone_number}\`\n` +
+    `👤 *Name:* ${d.name || "Unknown"}\n` +
+    `🏷 *Type:* ${d.type || "N/A"}\n\n` +
     "━━━━━━━━━━━━━━\n" +
     "👑 *Credit:*\n" +
     "• @bdkingboss\n" +
@@ -105,7 +101,7 @@ function formatNumberInfo(api) {
   );
 }
 
-// ===== WEBHOOK HANDLER =====
+// ===== WEBHOOK =====
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.json({ ok: true });
   if (req.query.secret !== WEBHOOK_SECRET)
@@ -127,63 +123,55 @@ async function onMessage(msg) {
   const from = msg.from;
   const text = msg.text || "";
   const admin = isAdmin(from.id);
-  const user = getOrCreateUser(from);
+  const user = getUser(from);
 
-  subscribers.add(chatId);
+  if (blocked.has(from.id) && !admin)
+    return send(chatId, "🚫 *You are blocked.*");
 
-  if (blockedUsers.has(from.id) && !admin) {
-    return send(chatId, "🚫 *You are blocked from using this bot.*");
-  }
-
-  // WAITING NUMBER
-  if (userStates[chatId] === "WAITING_NUMBER") {
-    delete userStates[chatId];
+  // WAIT NUMBER
+  if (states[chatId] === "WAIT_NUMBER") {
+    delete states[chatId];
 
     if (!isFreeMode && !admin) {
-      if (user.balance <= 0) {
+      if (user.balance <= 0)
         return send(
           chatId,
-          "❌ *Balance 0*\n\nRefer users to earn coin.\n\n" +
-            `🔗 https://t.me/${BOT_USERNAME}?start=${user.id}`,
-          { reply_markup: mainKeyboard(admin) }
+          "❌ *Balance 0*\n\nRefer users to earn coin:\n" +
+            `https://t.me/${BOT_USERNAME}?start=${user.id}`,
+          { reply_markup: mainKB(admin) }
         );
-      }
       user.balance--;
     }
-
-    return lookupNumber(chatId, text);
+    return lookup(chatId, text);
   }
 
   // START
   if (text.startsWith("/start")) {
     const ref = text.split(" ")[1];
-    if (!user.joinedOnce) {
-      user.joinedOnce = true;
-      if (ref && ref != from.id && users[ref]) {
+    if (!user.joined) {
+      user.joined = true;
+      if (ref && users[ref] && ref != user.id) {
         users[ref].balance += refBonus;
-        users[ref].referrals.push(from.id);
+        users[ref].referrals.push(user.id);
       }
     }
     return send(chatId, "👑 *Join all channels first*", {
-      reply_markup: joinKeyboard,
+      reply_markup: joinKB,
     });
   }
 
   if (text === "📱 Number info CHECK") {
-    userStates[chatId] = "WAITING_NUMBER";
+    states[chatId] = "WAIT_NUMBER";
     return send(chatId, "📱 *Send phone number*\nExample: `88018xxxxxxx`", {
-      reply_markup: mainKeyboard(admin),
+      reply_markup: mainKB(admin),
     });
   }
 
   if (text === "💰 My Balance") {
     return send(
       chatId,
-      "💰 *My Balance*\n\n" +
-        `⭐ Coin: *${user.balance}*\n` +
-        `👥 Referrals: *${user.referrals.length}*\n\n` +
-        `🔗 https://t.me/${BOT_USERNAME}?start=${user.id}`,
-      { reply_markup: mainKeyboard(admin) }
+      `💰 *Balance:* ${user.balance}\n👥 *Referrals:* ${user.referrals.length}\n\n🔗 https://t.me/${BOT_USERNAME}?start=${user.id}`,
+      { reply_markup: mainKB(admin) }
     );
   }
 
@@ -192,47 +180,62 @@ async function onMessage(msg) {
       user.referrals.map((id, i) => `${i + 1}. \`${id}\``).join("\n") ||
       "No referrals yet.";
     return send(chatId, "📜 *Refer History*\n\n" + list, {
-      reply_markup: mainKeyboard(admin),
+      reply_markup: mainKB(admin),
     });
   }
 
   if (text === "👨‍💻 Dev contact") {
     return send(
       chatId,
-      "👨‍💻 *Developer Info*\n\n• @Bdkingboss\n• @Rfcyberteam",
-      { reply_markup: mainKeyboard(admin) }
+      "👨‍💻 *Developer Info*\n• @Bdkingboss\n• @Rfcyberteam",
+      { reply_markup: mainKB(admin) }
     );
   }
 }
 
 // ===== CALLBACK =====
 async function onCallback(cb) {
-  if (cb.data === "VERIFY_JOIN") {
+  if (cb.data === "JOIN_OK") {
     await tg("answerCallbackQuery", {
       callback_query_id: cb.id,
       text: "✅ Verified!",
     });
-    await send(cb.message.chat.id, "🎉 *Welcome!*\nNow you can use the bot 👇", {
-      reply_markup: mainKeyboard(isAdmin(cb.from.id)),
+    await send(cb.message.chat.id, "🎉 *Welcome!*\nUse menu 👇", {
+      reply_markup: mainKB(isAdmin(cb.from.id)),
     });
   }
 }
 
-// ===== NUMBER LOOKUP =====
-async function lookupNumber(chatId, text) {
-  const number = text.replace(/\D/g, "");
-  if (number.length < 10) {
-    return send(chatId, "⚠️ Invalid number.");
-  }
+// ===== NUMBER LOOKUP (FIXED) =====
+async function lookup(chatId, text) {
+  const num = text.replace(/\D/g, "");
+  if (num.length < 10) return send(chatId, "⚠️ Invalid number.");
 
-  await send(chatId, "⏳ Checking number...");
+  await send(chatId, "⏳ *Checking number…*");
+
   try {
     const r = await fetch(
-      `https://ball-livid.vercel.app/api/eyacon?number=${number}`
+      `https://ball-livid.vercel.app/api/eyacon?number=${num}`,
+      {
+        headers: {
+          "User-Agent":
+            "Mozilla/5.0 (Linux; Android 11; Mobile Safari)",
+          Accept: "application/json",
+        },
+      }
     );
-    const j = await r.json();
-    await send(chatId, formatNumberInfo(j));
-  } catch {
-    await send(chatId, "❌ API error.");
+
+    if (!r.ok) throw new Error("HTTP " + r.status);
+
+    const textData = await r.text();
+    const json = JSON.parse(textData);
+
+    await send(chatId, formatResult(json));
+  } catch (e) {
+    console.error("API ERROR:", e);
+    await send(
+      chatId,
+      "❌ *API error occurred.*\nPlease try again later."
+    );
   }
 }
