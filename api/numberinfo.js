@@ -1,4 +1,4 @@
-// pages/api/bot.js
+/// pages/api/bot.js
 
 // ====== CONFIG ======
 const BOT_TOKEN = "8364616944:AAEl_8r2tcGVsdvqN4Qb-lGNVCrj4qRiIUE";      // <-- @BotFather থেকে
