@@ -1,153 +1,117 @@
 import fetch from "node-fetch";
 
 export default async function handler(req, res) {
-  if (req.method !== "POST") return res.status(200).send("OK");
-
-  // ===== CONFIG =====
-  const BOT_TOKEN = "8224663500:AAESgArrjCUQSR59orT4RFDoEyCepoyoGSU";
-
-  const API_FB = "https://ball-livid.vercel.app/api/fbd?id=";
-  const API_YT = "https://ball-livid.vercel.app/api/ytd?url=";
-  const API_TT = "https://ball-livid.vercel.app/api/tiktokd?id=";
-
-  const update = req.body;
-  const msg = update?.message || update?.edited_message;
-  const text = msg?.text?.trim() || "";
-  const chatId = msg?.chat?.id;
-  if (!chatId) return res.end();
-
-  // ===== Telegram helper =====
-  const tg = (method, data) =>
-    fetch(`https://api.telegram.org/bot${BOT_TOKEN}/${method}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(data)
-    });
-
-  const sendText = (t) =>
-    tg("sendMessage", {
-      chat_id: chatId,
-      text: t,
-      parse_mode: "HTML",
-      disable_web_page_preview: true
-    });
-
-  const sendVideoSafe = async (videoUrl, caption) => {
-    // প্রথমে ভিডিও হিসেবে পাঠানোর চেষ্টা
-    const r = await tg("sendVideo", {
-      chat_id: chatId,
-      video: videoUrl,
-      caption,
-      parse_mode: "HTML"
-    });
-
-    const j = await r.json();
-
-    // ভিডিও সাইজ বড় হলে fallback → document
-    if (!j.ok) {
-      await tg("sendDocument", {
-        chat_id: chatId,
-        document: videoUrl,
-        caption,
-        parse_mode: "HTML"
-      });
-    }
-  };
-
-  const getJson = async (url) => {
-    try {
-      const r = await fetch(url);
-      return await r.json();
-    } catch {
-      return null;
-    }
-  };
-
-  // ===== START =====
-  if (text === "/start") {
-    await sendText(
-      "👋 <b>Welcome</b>\n\n📥 Facebook / YouTube / TikTok লিংক পাঠাও\n🎬 ভিডিও + টাইটেল + ক্রেডিট সহ পাবো"
-    );
-    return res.end();
-  }
-
-  // ===== FACEBOOK =====
-  if (/facebook\.com|fb\.watch/i.test(text)) {
-    await sendText("⏳ <b>Facebook video processing...</b>");
-
-    const d = await getJson(API_FB + encodeURIComponent(text));
-    const video = d?.download_links?.[0];
-
-    if (!video) {
-      await sendText("❌ Facebook ভিডিও পাওয়া যায়নি");
-      return res.end();
+    if (req.method !== "POST") {
+        return res.status(200).send("OK");
     }
 
-    const caption =
-      "🎥 <b>Facebook Video</b>\n\n" +
-      "📡 <b>Source:</b> Facebook\n\n" +
-      "👑 <b>Credit:</b>\n" +
-      "• @bdkingboss\n" +
-      "• @topnormalperson\n" +
-      "🔗 https://t.me/Rfcyberteam";
+    // ===== CONFIG =====
+    const BOT_TOKEN = "8224663500:AAESgArrjCUQSR59orT4RFDoEyCepoyoGSU";
+    const API_FB = "https://ball-livid.vercel.app/api/fbd?id=";
+    const API_YT = "https://ball-livid.vercel.app/api/ytd?url=";
+    const API_TT = "https://ball-livid.vercel.app/api/tiktokd?id=";
 
-    await sendVideoSafe(video, caption);
-    return res.end();
-  }
+    const update = req.body;
+    const msg = update?.message || update?.edited_message;
+    const text = msg?.text?.trim() || "";
+    const chatId = msg?.chat?.id;
+    if (!chatId) return res.end();
 
-  // ===== YOUTUBE =====
-  if (/youtube\.com|youtu\.be/i.test(text)) {
-    await sendText("⏳ <b>YouTube video processing...</b>");
+    // ===== Telegram helper =====
+    const tg = (method, data) =>
+        fetch(`https://api.telegram.org/bot${BOT_TOKEN}/${method}`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(data)
+        });
 
-    const d = await getJson(API_YT + encodeURIComponent(text));
-    const info = d?.data?.data;
+    const sendText = (t) =>
+        tg("sendMessage", {
+            chat_id: chatId,
+            text: t,
+            parse_mode: "HTML",
+            disable_web_page_preview: true
+        });
 
-    const videoItem = info?.items?.find(
-      (v) => v.type === "video_with_audio" && v.ext === "mp4"
-    );
+    const getJson = async (url) => {
+        try {
+            const r = await fetch(url);
+            return await r.json();
+        } catch {
+            return null;
+        }
+    };
 
-    if (!videoItem?.url) {
-      await sendText("❌ YouTube ভিডিও পাওয়া যায়নি");
-      return res.end();
+    // ===== START =====
+    if (text === "/start") {
+        await sendText("👋 <b>স্বাগতম!</b>\n📥 Facebook, YouTube বা TikTok লিংক পাঠান।\n\n🛡 <i>Powered by: @Rfcyberteam</i>");
+        return res.end();
     }
 
-    const caption =
-      "🎬 <b>YouTube Video</b>\n\n" +
-      `⏱ <b>Duration:</b> ${info.duration}s\n\n` +
-      "👑 <b>Credit:</b>\n" +
-      "• @bdkingboss\n" +
-      "• @topnormalperson\n" +
-      "🔗 https://t.me/Rfcyberteam";
+    // ===== Facebook =====
+    if (/facebook.com|fb.watch/i.test(text)) {
+        await sendText("⏳ <b>Facebook video processing...</b>");
+        const d = await getJson(API_FB + encodeURIComponent(text));
+        const video = d?.download_links?.[0];
 
-    await sendVideoSafe(videoItem.url, caption);
-    return res.end();
-  }
-
-  // ===== TIKTOK =====
-  if (/tiktok\.com/i.test(text)) {
-    await sendText("⏳ <b>TikTok video processing...</b>");
-
-    const d = await getJson(API_TT + encodeURIComponent(text));
-    const video = d?.download_url;
-
-    if (!video) {
-      await sendText("❌ TikTok ভিডিও পাওয়া যায়নি");
-      return res.end();
+        if (!video) {
+            await sendText("❌ দুঃখিত, ভিডিওটি পাওয়া যায়নি বা সাইজ অনেক বড়।");
+        } else {
+            await tg("sendVideo", { 
+                chat_id: chatId, 
+                video: video,
+                caption: "✅ <b>Facebook Video Downloaded</b>\n\n🛡 <i>Credit: @Rfcyberteam</i>",
+                parse_mode: "HTML"
+            });
+        }
+        return res.end();
     }
 
-    const caption =
-      "🎵 <b>TikTok Video</b>\n\n" +
-      `${d.description || ""}\n\n` +
-      "👑 <b>Credit:</b>\n" +
-      "• @bdkingboss\n" +
-      "• @topnormalperson\n" +
-      "🔗 https://t.me/Rfcyberteam";
+    // ===== YouTube =====
+    if (/youtube.com|youtu.be/i.test(text)) {
+        await sendText("⏳ <b>YouTube video processing...</b>");
+        const d = await getJson(API_YT + encodeURIComponent(text));
+        
+        // আপনার দেওয়া JSON অনুযায়ী path: data.data.items
+        const items = d?.data?.data?.items || d?.data?.items;
+        const video = items?.find(v => v.type === "video_with_audio" && v.ext === "mp4")?.url || items?.find(v => v.type === "video_with_audio")?.url;
 
-    await sendVideoSafe(video, caption);
-    return res.end();
-  }
+        if (!video) {
+            await sendText("❌ YouTube ভিডিওটি বড় হওয়ার কারণে পাঠানো যাচ্ছে না।");
+        } else {
+            await tg("sendVideo", { 
+                chat_id: chatId, 
+                video: video,
+                caption: `🎬 <b>YouTube Video</b>\n\n🛡 <i>Credit: @Rfcyberteam</i>`,
+                parse_mode: "HTML"
+            });
+        }
+        return res.end();
+    }
 
-  // ===== FALLBACK =====
-  await sendText("📎 সঠিক Facebook / YouTube / TikTok লিংক পাঠাও");
-  res.end();
+    // ===== TikTok =====
+    if (/tiktok.com/i.test(text)) {
+        await sendText("⏳ <b>TikTok video processing...</b>");
+        const d = await getJson(API_TT + encodeURIComponent(text));
+        const video = d?.download_url || d?.downloadUrl;
+        const title = d?.description || "TikTok Video";
+
+        if (!video) {
+            await sendText("❌ TikTok ভিডিও পাওয়া যায়নি।");
+        } else {
+            await tg("sendVideo", { 
+                chat_id: chatId, 
+                video: video,
+                caption: `📱 <b>${title}</b>\n\n🛡 <i>Credit: @Rfcyberteam</i>`,
+                parse_mode: "HTML"
+            });
+        }
+        return res.end();
+    }
+
+    // ===== Fallback =====
+    if (text.startsWith("http")) {
+        await sendText("📎 সঠিক Facebook / YouTube / TikTok লিংক পাঠাও।");
+    }
+    res.end();
 }
