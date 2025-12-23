@@ -44,74 +44,76 @@ export default async function handler(req, res) {
 
     // ===== START =====
     if (text === "/start") {
-        await sendText("👋 <b>স্বাগতম!</b>\n📥 Facebook, YouTube বা TikTok লিংক পাঠান।\n\n🛡 <i>Powered by: @Rfcyberteam</i>");
+        await sendText("👋 <b>স্বাগতম!</b>\n📥 Facebook, YouTube বা TikTok ভিডিওর লিংক পাঠান।\n\n🛡 <i>Powered by: @Rfcyberteam</i>");
         return res.end();
     }
 
-    // ===== Facebook =====
+    // ===== Facebook Download =====
     if (/facebook.com|fb.watch/i.test(text)) {
-        await sendText("⏳ <b>Facebook video processing...</b>");
+        await sendText("⏳ <b>Facebook ভিডিও প্রসেস হচ্ছে...</b>");
         const d = await getJson(API_FB + encodeURIComponent(text));
-        const video = d?.download_links?.[0];
+        const videoUrl = d?.download_links?.[0]; // ১ম লিংকটি নেওয়া হচ্ছে
 
-        if (!video) {
-            await sendText("❌ দুঃখিত, ভিডিওটি পাওয়া যায়নি বা সাইজ অনেক বড়।");
-        } else {
-            await tg("sendVideo", { 
-                chat_id: chatId, 
-                video: video,
-                caption: "✅ <b>Facebook Video Downloaded</b>\n\n🛡 <i>Credit: @Rfcyberteam</i>",
-                parse_mode: "HTML"
-            });
+        if (!videoUrl) {
+            return sendText("❌ দুঃখিত, ফেসবুক ভিডিওটি পাওয়া যায়নি বা ফাইলটি অনেক বড়।");
         }
+
+        await tg("sendVideo", {
+            chat_id: chatId,
+            video: videoUrl,
+            caption: "✅ <b>Facebook Video Downloaded</b>\n\n🛡 <i>Credit: @Rfcyberteam</i>",
+            parse_mode: "HTML"
+        });
         return res.end();
     }
 
-    // ===== YouTube =====
+    // ===== YouTube Download =====
     if (/youtube.com|youtu.be/i.test(text)) {
-        await sendText("⏳ <b>YouTube video processing...</b>");
+        await sendText("⏳ <b>YouTube ভিডিও প্রসেস হচ্ছে...</b>");
         const d = await getJson(API_YT + encodeURIComponent(text));
         
-        // আপনার দেওয়া JSON অনুযায়ী path: data.data.items
-        const items = d?.data?.data?.items || d?.data?.items;
-        const video = items?.find(v => v.type === "video_with_audio" && v.ext === "mp4")?.url || items?.find(v => v.type === "video_with_audio")?.url;
-
-        if (!video) {
-            await sendText("❌ YouTube ভিডিওটি বড় হওয়ার কারণে পাঠানো যাচ্ছে না।");
-        } else {
-            await tg("sendVideo", { 
-                chat_id: chatId, 
-                video: video,
-                caption: `🎬 <b>YouTube Video</b>\n\n🛡 <i>Credit: @Rfcyberteam</i>`,
-                parse_mode: "HTML"
-            });
+        // আপনার JSON স্ট্রাকচার অনুযায়ী video_with_audio ফিল্টার করা
+        const items = d?.data?.data?.items || d?.data?.items || [];
+        const videoObj = items.find(v => v.type === "video_with_audio" && v.ext === "mp4") || 
+                         items.find(v => v.type === "video_with_audio");
+        
+        if (!videoObj?.url) {
+            return sendText("❌ ইউটিউব ভিডিওর সরাসরি ফাইল পাওয়া যায়নি (হয়তো ফাইল সাইজ ২০ মেগাবাইটের বেশি)।");
         }
+
+        await tg("sendVideo", {
+            chat_id: chatId,
+            video: videoObj.url,
+            caption: "🎬 <b>YouTube Video Downloader</b>\n\n🛡 <i>Credit: @Rfcyberteam</i>",
+            parse_mode: "HTML"
+        });
         return res.end();
     }
 
-    // ===== TikTok =====
+    // ===== TikTok Download =====
     if (/tiktok.com/i.test(text)) {
-        await sendText("⏳ <b>TikTok video processing...</b>");
+        await sendText("⏳ <b>TikTok ভিডিও প্রসেস হচ্ছে...</b>");
         const d = await getJson(API_TT + encodeURIComponent(text));
-        const video = d?.download_url || d?.downloadUrl;
-        const title = d?.description || "TikTok Video";
+        const videoUrl = d?.download_url || d?.downloadUrl;
+        const description = d?.description || "TikTok Video";
 
-        if (!video) {
-            await sendText("❌ TikTok ভিডিও পাওয়া যায়নি।");
-        } else {
-            await tg("sendVideo", { 
-                chat_id: chatId, 
-                video: video,
-                caption: `📱 <b>${title}</b>\n\n🛡 <i>Credit: @Rfcyberteam</i>`,
-                parse_mode: "HTML"
-            });
+        if (!videoUrl) {
+            return sendText("❌ টিকটক ভিডিওটি পাওয়া যায়নি।");
         }
+
+        await tg("sendVideo", {
+            chat_id: chatId,
+            video: videoUrl,
+            caption: `📱 <b>${description}</b>\n\n🛡 <i>Credit: @Rfcyberteam</i>`,
+            parse_mode: "HTML"
+        });
         return res.end();
     }
 
-    // ===== Fallback =====
+    // ===== Fallback (অন্য কিছু পাঠালে) =====
     if (text.startsWith("http")) {
-        await sendText("📎 সঠিক Facebook / YouTube / TikTok লিংক পাঠাও।");
+        await sendText("📎 অনুগ্রহ করে সঠিক Facebook, YouTube বা TikTok লিংক পাঠান।");
     }
+    
     res.end();
 }
